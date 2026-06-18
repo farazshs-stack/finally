@@ -1,0 +1,79 @@
+# ============================================================
+# docker-compose.test.yml  — E2E test infrastructure
+#
+# Spins up:
+#   - app    : the FinAlly container with LLM_MOCK=true
+#   - playwright : Playwright test runner (mcr.microsoft.com/playwright)
+#
+# HOW TO RUN (from project root):
+#
+#   docker compose -f test/docker-compose.test.yml up --build --abort-on-container-exit
+#
+# Or to run a specific test file:
+#
+#   docker compose -f test/docker-compose.test.yml run --rm playwright \
+#       npx playwright test tests/watchlist.spec.ts
+#
+# Exit codes:
+#   0 = all tests passed
+#   1 = one or more tests failed
+#
+# Tear down (including removing test containers):
+#
+#   docker compose -f test/docker-compose.test.yml down -v
+# ============================================================
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: finally:test
+    container_name: finally-app-test
+    environment:
+      # Deterministic mock LLM responses — no real API calls in CI
+      LLM_MOCK: "true"
+      # Simulator is always used in tests (no MASSIVE_API_KEY)
+      MASSIVE_API_KEY: ""
+      # Dummy key so the app starts without errors
+      OPENROUTER_API_KEY: "test-mock-key"
+      DATABASE_PATH: /app/db/finally.db
+    volumes:
+      - test-db:/app/db
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.49.0-noble
+    container_name: finally-playwright
+    # Mount the e2e tests directory into the container
+    volumes:
+      - ./e2e:/app/tests
+      - ./playwright.config.ts:/app/playwright.config.ts
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+    working_dir: /app
+    environment:
+      # Point Playwright at the app container (service name resolves inside compose network)
+      BASE_URL: "http://app:8000"
+      # CI flag disables interactive UI
+      CI: "true"
+    depends_on:
+      app:
+        condition: service_healthy
+    # Install deps then run tests; exit code propagates to compose
+    command: >
+      bash -c "
+        npm ci --prefer-offline &&
+        npx playwright test --reporter=list
+      "
+
+volumes:
+  test-db:
+    # Ephemeral — destroyed with 'down -v'; each test run starts fresh

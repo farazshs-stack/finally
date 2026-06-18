@@ -1,24 +1,11 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "set -a; . ./.env 2>/dev/null; set +a; codex exec --skip-git-repo-check -o planning/Review.md \"Review all changes since the last git commit (run git diff against HEAD to see them). Write a thorough code review in Markdown covering bugs, risks, and concrete suggestions. Output only the review.\" < /dev/null",
-            "shell": "bash",
-            "timeout": 600,
-            "statusMessage": "Independent review: codex reviewing changes...",
-            "async": true
-          }
-        ]
-      }
-    ]
-  },
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true,
     "context7@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true
-  }
+    "playwright@claude-plugins-official": true
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "teammateMode": "in-process"
 }
