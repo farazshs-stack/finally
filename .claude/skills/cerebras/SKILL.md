@@ -1,8 +1,7 @@
----
-name: cerebras-inference
-description: Use this to write code to call an LLM using LiteLLM and OpenRouter with the Cerebras inference provider
----
+name: Cerebras Inference
 
+description: "Cerebras Inference is a powerful tool designed to optimize and accelerate the inference process for machine learning models. It leverages advanced hardware and software technologies to deliver high performance and efficiency, making it ideal for deploying AI applications in various industries. With Cerebras Inference, users can achieve faster response times and improved scalability, enabling them to handle complex workloads and large datasets with ease."
+--
 # Calling an LLM via Cerebras
 
 These instructions allow you write code to call an LLM with Cerebras specified as the inference provider.  

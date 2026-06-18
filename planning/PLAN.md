@@ -454,3 +454,32 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
 - SSE resilience: disconnect and verify reconnection
+
+---
+
+## 13. Review — Questions, Clarifications & Simplifications
+
+> Added 2026-06-17 by a documentation review pass. These are open items to resolve before/while building — not changes to the spec itself.
+
+### A. Open Questions & Clarifications
+
+1. **Seed price for user-added tickers (simulator mode).** §7 lists seed prices for the 10 defaults, but when a user adds an arbitrary ticker (e.g. `PYPL`) via the watchlist or AI chat, where does the simulator get its starting price? Options: a hardcoded lookup table, a flat default (e.g. $100), or reject unknown tickers. This needs a defined rule — it affects both `POST /api/watchlist` validation and the simulator.
+2. **"Daily change %" in simulator mode.** §10 shows a daily change % per ticker. For Massive this maps to `day.change_percent` (vs. previous close). The simulator has no "previous close" — is daily change measured from the seed price? From the price at first stream connection? Define the reference point, or the number is meaningless in the default mode everyone runs.
+3. **Who computes the live header total value?** §8's `GET /api/portfolio` returns a point-in-time total, but the header updates "live" with every price tick. That implies the **frontend** recomputes `cash + Σ(qty × live_price)` from the SSE stream. Worth stating explicitly so frontend/backend agree on ownership and the backend value isn't mistaken for the live one.
+4. **SSE scope vs. watchlist.** §6 says the stream pushes "all tickers known to the system." Confirm this is exactly the watchlist in the single-user model, and that newly-added tickers begin streaming on the *next* tick (both simulator and Massive poller) without a reconnect.
+5. **Conversation history window.** §9 step 2 loads "recent conversation history." How many messages / what token budget? Unbounded history will eventually overflow the model context. Suggest a fixed cap (e.g. last N messages or M tokens).
+6. **LLM JSON-repair strategy.** §9 says malformed responses are handled "gracefully," but not how. Is there a single retry with a "return valid JSON" reprompt, a fallback message, or just an error? Define it — reasoning models can wrap or prefix JSON.
+7. **Ticker validation source.** `POST /api/watchlist` — is a ticker validated against Massive's reference endpoint, an allowlist, or accepted blindly? In simulator mode there's no authority to validate against (ties back to #1).
+
+### B. Potential Risks / Things to Verify Early
+
+1. **Massive entitlement (verified 2026-06-17).** The configured `MASSIVE_API_KEY` returns **HTTP 403 `NOT_AUTHORIZED`** on the primary `/v2/snapshot/...` endpoint that `MassiveDataSource` depends on — it only has access to delayed endpoints (prev-day aggregates, reference data). §6's "Free tier (5 calls/min) → poll every 15s" assumes the snapshot endpoint is reachable on a low tier; in practice real-time snapshots appear to require a paid real-time plan. **Action:** either treat the simulator as the only supported source for the core build, or downgrade Massive to use the prev-close aggregate endpoint (delayed, not streaming). Don't assume the snapshot path works.
+2. **Reasoning model + structured output.** `openrouter/openai/gpt-oss-120b` is a *reasoning* model — a connectivity test showed it spends completion tokens on a hidden reasoning channel before emitting content. This (a) adds latency, undercutting the "fast enough to skip streaming" assumption in §9, and (b) can complicate strict JSON-schema structured output. Verify OpenRouter+Cerebras honors the structured-output schema for this model, and consider setting low reasoning effort or raising `max_tokens` generously.
+3. **Float money math.** `cash_balance`, `avg_cost`, `quantity` are all `REAL`. Repeated buy/sell with fractional shares will accumulate floating-point drift (e.g. cash of `9999.9999998`). Decide on rounding rules for display and for the "insufficient cash/shares" comparisons to avoid off-by-a-penny rejections.
+
+### C. Simplification Opportunities
+
+1. **`portfolio_snapshots` background task → on-demand.** A 30s cron writing a row forever (even with no client connected, even overnight) grows the table unboundedly for a single-user toy app. Simplest: snapshot **on each trade only**, plus optionally a lightweight tick while a client is connected — or cap retention. Even simpler, the P&L chart could accumulate client-side from the SSE stream since page load (like the sparklines already do), eliminating the table *and* the background task — at the cost of losing history across reloads. Worth a deliberate decision rather than defaulting to the cron.
+2. **Charting library count.** §10 says "canvas-based (Lightweight Charts or Recharts)" — Recharts is SVG, not canvas, so the two aren't interchangeable. The treemap heatmap also isn't covered by Lightweight Charts. Pin the actual choice(s) now (e.g. Lightweight Charts for line/price + one treemap lib) so you don't end up pulling three charting deps ad hoc.
+3. **Multi-user hedging.** The `user_id="default"` columns and "supports future multi-user" notes recur throughout (§3, §6, §7). For a single-user capstone this is harmless future-proofing, but it adds conceptual weight to every query and doc section. Fine to keep — just flagging it as gold-plating that could be trimmed if the spec ever needs to get leaner.
+4. **`.env.example` is referenced but absent.** §4 says ".env.example committed," but no such file exists in the repo. Add it (mirroring §5) so the contract matches reality.
