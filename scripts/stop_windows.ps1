@@ -1,6 +1,6 @@
 # ============================================================
-# stop_windows.ps1  — Stop the FinAlly container (Windows)
-# The named volume (finally-data) is NOT removed — data persists.
+# stop_windows.ps1  - Stop the FinAlly container (Windows)
+# The named volume (finally-data) is NOT removed - data persists.
 # ============================================================
 
 $ErrorActionPreference = "Stop"

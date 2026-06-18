@@ -235,3 +235,7 @@ backend/static/*
 
 # E2E scratch DB
 test/.tmp/
+
+# Local .env backups (may contain secrets)
+.env.bak
+.env.*.bak

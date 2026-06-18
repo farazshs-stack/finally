@@ -1,11 +1,13 @@
 # ============================================================
-# start_windows.ps1  — Start the FinAlly container (Windows)
+# start_windows.ps1  - Start the FinAlly container (Windows)
 # Usage:
-#   .\scripts\start_windows.ps1          # build only if image missing
-#   .\scripts\start_windows.ps1 --build  # force a fresh image build
+#   .\scripts\start_windows.ps1               # build only if image missing, port 8000
+#   .\scripts\start_windows.ps1 -Build        # force a fresh image build
+#   .\scripts\start_windows.ps1 -Port 8080    # use a different host port (if 8000 is taken)
 # ============================================================
 param(
-    [switch]$Build
+    [switch]$Build,
+    [int]$Port = 8000
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +15,7 @@ $ErrorActionPreference = "Stop"
 $ImageName     = "finally:latest"
 $ContainerName = "finally-app"
 $VolumeName    = "finally-data"
-$HostPort      = 8000
+$HostPort      = $Port
 $AppUrl        = "http://localhost:$HostPort"
 
 # Project root is one level above the scripts/ directory
@@ -24,7 +26,7 @@ function Write-Info  { param($msg) Write-Host "[FinAlly] $msg" -ForegroundColor 
 function Write-Warn  { param($msg) Write-Host "[FinAlly] $msg" -ForegroundColor Yellow }
 function Write-Err   { param($msg) Write-Host "[FinAlly] $msg" -ForegroundColor Red    }
 
-# ── Preflight checks ─────────────────────────────────────────
+# - Preflight checks -
 try { docker version | Out-Null } catch {
     Write-Err "Docker not found. Install Docker Desktop: https://www.docker.com/products/docker-desktop"
     exit 1
@@ -37,12 +39,12 @@ if (-not (Test-Path $EnvFile)) {
     Write-Warn "Please edit .env and set OPENROUTER_API_KEY before running the app."
 }
 
-# ── Determine whether to build ───────────────────────────────
+# - Determine whether to build -
 $ShouldBuild = $Build
 if (-not $ShouldBuild) {
     $imageExists = docker image inspect $ImageName 2>$null
     if ($LASTEXITCODE -ne 0) {
-        Write-Info "Image '$ImageName' not found — building now ..."
+        Write-Info "Image '$ImageName' not found - building now ..."
         $ShouldBuild = $true
     }
 }
@@ -54,7 +56,7 @@ if ($ShouldBuild) {
     Write-Info "Build complete."
 }
 
-# ── Stop any existing container (idempotent) ─────────────────
+# - Stop any existing container (idempotent) -
 $running = docker ps -q --filter "name=^${ContainerName}$" 2>$null
 if ($running) {
     Write-Warn "Stopping existing container '$ContainerName' ..."
@@ -66,10 +68,33 @@ if ($exists) {
     docker rm $ContainerName | Out-Null
 }
 
-# ── Ensure named volume exists ───────────────────────────────
+# - Ensure named volume exists -
 docker volume create $VolumeName | Out-Null
 
-# ── Start container ──────────────────────────────────────────
+# - Pick a free host port (auto-skip ports already in use, e.g. by another container) -
+# Note: on Windows a TcpListener can bind a port another process already holds,
+# so we detect "in use" by trying to CONNECT to it instead.
+function Test-PortInUse {
+    param([int]$p)
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $iar = $client.BeginConnect("127.0.0.1", $p, $null, $null)
+        [void]$iar.AsyncWaitHandle.WaitOne(400)
+        return $client.Connected
+    } catch { return $false } finally { $client.Close() }
+}
+if (Test-PortInUse $HostPort) {
+    $orig = $HostPort
+    $HostPort = 0
+    foreach ($candidate in @(8080, 8081, 8082, 8090, 9000)) {
+        if (-not (Test-PortInUse $candidate)) { $HostPort = $candidate; break }
+    }
+    if ($HostPort -eq 0) { Write-Err "Port $orig is in use and no fallback port is free. Pass -Port <n>."; exit 1 }
+    $AppUrl = "http://localhost:$HostPort"
+    Write-Warn "Port $orig is already in use - using port $HostPort instead."
+}
+
+# - Start container -
 Write-Info "Starting FinAlly ..."
 docker run `
     --detach `
